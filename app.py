@@ -2,33 +2,34 @@ import streamlit as st
 import requests
 import pandas as pd
 
-st.set_page_config(page_title="SHOWROOM イベント取得テスト", layout="wide")
+st.set_page_config(page_title="SHOWROOM イベント確認ツール", layout="wide")
+st.title("SHOWROOM イベント確認ツール")
 
-st.title("SHOWROOM イベント取得テスト")
+# 取得するページ数
+pages_to_fetch = st.number_input("取得するページ数", min_value=1, max_value=50, value=5)
 
-# 取得ページ数を指定
-max_pages = st.number_input("取得するページ数", min_value=1, max_value=10, value=3)
+events_list = []
 
-all_events = []
-
-headers = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-for page in range(1, max_pages + 1):
+for page in range(1, pages_to_fetch + 1):
     url = f"https://www.showroom-live.com/api/event/search?page={page}"
-    resp = requests.get(url, headers=headers)
+    resp = requests.get(url)
     if resp.status_code == 200:
         data = resp.json()
         events = data.get("events", [])
-        all_events.extend(events)
-        st.write(f"ページ {page} 取得件数: {len(events)}")
+        events_list.extend(events)
     else:
-        st.error(f"ページ {page} の取得でエラー: {resp.status_code}")
+        st.error(f"ページ {page} の取得でエラー")
 
-if all_events:
-    st.success(f"合計取得イベント数: {len(all_events)}")
-    # デバッグ表示：最初の数件だけ表示
-    st.write(all_events[:10])
-else:
+if not events_list:
     st.warning("取得できるイベントがありませんでした。")
+else:
+    df_events = pd.DataFrame(events_list)
+    # 表示する列を絞る
+    df_events = df_events[['id','name','start_at','end_at','status']]
+    st.dataframe(df_events)
+
+    # 選択ボックスでイベントを選択
+    selected_event = st.selectbox("確認したいイベントを選択", df_events['name'])
+    event_id = df_events[df_events['name']==selected_event]['id'].values[0]
+
+    st.write(f"選択したイベントID: {event_id}")
