@@ -1,44 +1,56 @@
-import streamlit as st
-import requests
+import json
 import pandas as pd
+import plotly.express as px
+from datetime import datetime
 
-st.set_page_config(page_title="SHOWROOM イベント確認ツール", layout="wide")
-st.title("SHOWROOM イベント確認ツール")
+# -----------------------------
+# 1. JSONデータ読み込み（例）
+# -----------------------------
+# 例としてのJSON構造：
+# [
+#   {"timestamp": "2025-09-06 12:00", "participants": [
+#       {"id": "user1", "name": "ライバーA", "rank": 1, "points": 1500},
+#       {"id": "user2", "name": "ライバーB", "rank": 2, "points": 1200}
+#   ]},
+#   {"timestamp": "2025-09-06 13:00", "participants": [...]} 
+# ]
 
-# イベントID と event_url_key を入力（例として手動入力も可能）
-event_id = st.text_input("イベントIDを入力", value="40198")
-event_url_key = st.text_input("event_url_key を入力", value="kyotokimonoyuzen2025")
+with open('event_data.json', 'r', encoding='utf-8') as f:
+    data = json.load(f)
 
-if st.button("ランキング取得・レスポンス確認"):
-    max_pages = 5
-    all_data = []
+# -----------------------------
+# 2. データ整形
+# -----------------------------
+rows = []
+for record in data:
+    timestamp = datetime.strptime(record['timestamp'], '%Y-%m-%d %H:%M')
+    for p in record['participants']:
+        rows.append({
+            'timestamp': timestamp,
+            'id': p['id'],
+            'name': p['name'],
+            'rank': p['rank'],
+            'points': p['points']
+        })
 
-    st.info("ランキング取得中...")
+df = pd.DataFrame(rows)
 
-    for page in range(1, max_pages + 1):
-        url = f"https://www.showroom-live.com/api/event/{event_url_key}/ranking?page={page}"
-        try:
-            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-            if res.status_code != 200:
-                st.warning(f"ページ {page} はステータス {res.status_code}")
-                continue
+# -----------------------------
+# 3. CSV出力
+# -----------------------------
+df.to_csv('event_data_output.csv', index=False, encoding='utf-8-sig')
 
-            data = res.json()
+# -----------------------------
+# 4. 順位推移グラフ
+# -----------------------------
+fig_rank = px.line(df, x='timestamp', y='rank', color='name', markers=True,
+                   title='順位推移グラフ', labels={'rank': '順位', 'timestamp': '時刻'})
+fig_rank.update_yaxes(autorange="reversed")  # 順位1位を上に
+fig_rank.show()
 
-            # ここで丸ごと表示して、どのキーにポイントやユーザー名があるか確認
-            st.write(f"--- ページ {page} レスポンス JSON ---")
-            st.json(data)
-
-            # 実際のランキングリストを取得
-            page_data = data.get("ranking") or data.get("list") or []
-            if not page_data:
-                st.info(f"ページ {page} はランキングデータなし")
-                break
-
-            all_data.extend(page_data)
-
-        except Exception as e:
-            st.error(f"ページ {page} 取得中にエラー: {e}")
-            continue
-
-    st.success(f"合計 {len(all_data)} 件のランキングデータを取得しました")
+# -----------------------------
+# 5. ポイント推移グラフ
+# -----------------------------
+fig_points = px.line(df, x='timestamp', y='points', color='name', markers=True,
+                     title='ポイント推移グラフ', labels={'points': 'ポイント', 'timestamp': '時刻'})
+fig_points.show()
