@@ -5,3 +5,4 @@ matplotlib
 requests
 altair
 plotly
+streamlit_autorefresh
