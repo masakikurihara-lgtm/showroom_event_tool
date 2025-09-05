@@ -2,26 +2,19 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
-from io import BytesIO
-from zipfile import ZipFile
-import time
 
 st.set_page_config(page_title="SHOWROOM イベント確認ツール", layout="wide")
-
 st.title("SHOWROOM イベント確認ツール")
 
-# ページ数選択
+# --- ページ数選択 ---
 page_count = st.number_input("取得するページ数", min_value=1, max_value=50, value=5, step=1)
 
-# イベント種類選択
-event_type_map = {
-    "終了含む": 0,
-    "開催中": 1
-}
+# --- イベント種類選択 ---
+event_type_map = {"終了含む": 0, "開催中": 1}
 event_type_choice = st.selectbox("イベント種類を選択", list(event_type_map.items()))
 event_type_value = event_type_choice[1]
 
-# データ取得ボタン
+# --- イベント取得 ---
 if st.button("イベント取得"):
     all_events = []
     st.info("イベント取得中...")
@@ -53,13 +46,13 @@ if st.button("イベント取得"):
         df_display['終了日時'] = pd.to_datetime(df_display['ended_at'], unit='s')
         st.dataframe(df_display[['event_name','開始日時','終了日時','type_name']])
 
-        # イベント選択
+        # --- イベント選択 ---
         selected_event_idx = st.selectbox("詳細を表示するイベントを選択してください", df_display.index)
         selected_event = df_display.loc[selected_event_idx]
         st.write(f"選択したイベントID：{selected_event['event_id']}")
         st.write(f"event_url_key：{selected_event['event_url_key']}")
 
-        # ---------- ランキング取得関数 ----------
+        # --- ランキング取得関数 ---
         def fetch_ranking(event_id, event_url_key, max_pages=5):
             all_data = []
             base_candidates = [
@@ -68,9 +61,7 @@ if st.button("イベント取得"):
                 f"https://www.showroom-live.com/api/event/room_ranking?event_id={event_id}&page={{page}}",
             ]
             if event_url_key:
-                base_candidates.append(
-                    f"https://www.showroom-live.com/api/event/{event_url_key}/ranking?page={{page}}"
-                )
+                base_candidates.append(f"https://www.showroom-live.com/api/event/{event_url_key}/ranking?page={{page}}")
 
             success = False
             for base_url in base_candidates:
@@ -95,32 +86,37 @@ if st.button("イベント取得"):
                         continue
                 if success:
                     break
+
             if not success:
                 return None
             return pd.DataFrame(all_data)
 
-        # ---------- ランキング取得 ----------
-# ランキング取得後の表示処理
-st.write("ランキング取得完了：", len(ranking_df), "件")
+        # --- ランキング取得 ---
+        ranking_df = fetch_ranking(selected_event['event_id'], selected_event['event_url_key'])
 
-# まず列一覧を確認
-st.write("取得したランキングの列一覧:", ranking_df.columns.tolist())
+        if ranking_df is None or ranking_df.empty:
+            st.warning("ランキングの取得に失敗しました。")
+        else:
+            st.write("ランキング取得完了：", len(ranking_df), "件")
 
-# 表示用 DataFrame 整形
-display_cols = []
-df_copy = ranking_df.copy()
+            # 列一覧確認
+            st.write("取得したランキングの列一覧:", ranking_df.columns.tolist())
 
-if 'rank' in df_copy.columns:
-    df_copy = df_copy.rename(columns={'rank':'順位'})
-    display_cols.append('順位')
-if 'user_name' in df_copy.columns:
-    df_copy = df_copy.rename(columns={'user_name':'ユーザー名'})
-    display_cols.append('ユーザー名')
-if 'point' in df_copy.columns:
-    df_copy = df_copy.rename(columns={'point':'獲得ポイント'})
-    display_cols.append('獲得ポイント')
+            # 表示用 DataFrame 整形
+            display_cols = []
+            df_copy = ranking_df.copy()
 
-if not display_cols:
-    st.warning("表示できる列がありません。")
-else:
-    st.dataframe(df_copy[display_cols].head(100))
+            if 'rank' in df_copy.columns:
+                df_copy = df_copy.rename(columns={'rank':'順位'})
+                display_cols.append('順位')
+            if 'user_name' in df_copy.columns:
+                df_copy = df_copy.rename(columns={'user_name':'ユーザー名'})
+                display_cols.append('ユーザー名')
+            if 'point' in df_copy.columns:
+                df_copy = df_copy.rename(columns={'point':'獲得ポイント'})
+                display_cols.append('獲得ポイント')
+
+            if not display_cols:
+                st.warning("表示できる列がありません。")
+            else:
+                st.dataframe(df_copy[display_cols].head(100))
