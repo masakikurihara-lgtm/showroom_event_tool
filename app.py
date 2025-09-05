@@ -55,3 +55,31 @@ if all_events:
 
 else:
     st.warning("取得できるイベントがありませんでした。")
+
+# -------------------------------
+# イベント選択（一覧から選べるようにする）
+# -------------------------------
+selected_name = st.selectbox("詳細を表示するイベントを選択してください", df_display["event_name"])
+selected_id = df_display[df_display["event_name"] == selected_name]["event_id"].values[0]
+
+st.write(f"選択したイベントID：{selected_id}")
+
+# -------------------------------
+# ランキングデータを取得
+# -------------------------------
+ranking_url = f"https://www.showroom-live.com/api/event/ranking?event_id={selected_id}&page=1"
+resp = requests.get(ranking_url)
+
+if resp.status_code == 200:
+    ranking_list = resp.json().get("ranking", [])
+    if ranking_list:
+        rank_df = pd.DataFrame(ranking_list)
+        st.subheader("イベントランキング（上位）")
+        st.dataframe(rank_df.head(10))  # 上位10人を表形式で表示
+
+        # ポイントを棒グラフで表示
+        st.bar_chart(rank_df.set_index("user_name")["point"].head(10))
+    else:
+        st.info("ランキング情報がありません。")
+else:
+    st.error("ランキングの取得に失敗しました。")
