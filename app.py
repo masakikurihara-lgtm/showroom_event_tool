@@ -100,17 +100,27 @@ if st.button("イベント取得"):
             return pd.DataFrame(all_data)
 
         # ---------- ランキング取得 ----------
-        st.info("ランキング取得中...")
-        ranking_df = fetch_ranking(selected_event['event_id'], selected_event['event_url_key'], max_pages=10)
-        if ranking_df is None or ranking_df.empty:
-            st.error("ランキングの取得に失敗しました。")
-        else:
-            st.success(f"ランキング取得成功：{len(ranking_df)} 件")
-            # 表示用 DataFrame 整形
-            if 'rank' in ranking_df.columns:
-                ranking_df = ranking_df.rename(columns={'rank':'順位'})
-            if 'user_name' in ranking_df.columns:
-                ranking_df = ranking_df.rename(columns={'user_name':'ユーザー名'})
-            if 'point' in ranking_df.columns:
-                ranking_df = ranking_df.rename(columns={'point':'獲得ポイント'})
-            st.dataframe(ranking_df[['順位','ユーザー名','獲得ポイント']].head(100))
+# ランキング取得後の表示処理
+st.write("ランキング取得完了：", len(ranking_df), "件")
+
+# まず列一覧を確認
+st.write("取得したランキングの列一覧:", ranking_df.columns.tolist())
+
+# 表示用 DataFrame 整形
+display_cols = []
+df_copy = ranking_df.copy()
+
+if 'rank' in df_copy.columns:
+    df_copy = df_copy.rename(columns={'rank':'順位'})
+    display_cols.append('順位')
+if 'user_name' in df_copy.columns:
+    df_copy = df_copy.rename(columns={'user_name':'ユーザー名'})
+    display_cols.append('ユーザー名')
+if 'point' in df_copy.columns:
+    df_copy = df_copy.rename(columns={'point':'獲得ポイント'})
+    display_cols.append('獲得ポイント')
+
+if not display_cols:
+    st.warning("表示できる列がありません。")
+else:
+    st.dataframe(df_copy[display_cols].head(100))
