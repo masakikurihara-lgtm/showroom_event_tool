@@ -1,56 +1,45 @@
-import json
+import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
+import numpy as np
+from datetime import datetime, timedelta
 
-# -----------------------------
-# 1. JSONデータ読み込み（例）
-# -----------------------------
-# 例としてのJSON構造：
-# [
-#   {"timestamp": "2025-09-06 12:00", "participants": [
-#       {"id": "user1", "name": "ライバーA", "rank": 1, "points": 1500},
-#       {"id": "user2", "name": "ライバーB", "rank": 2, "points": 1200}
-#   ]},
-#   {"timestamp": "2025-09-06 13:00", "participants": [...]} 
-# ]
+st.set_page_config(page_title="Showroom Event Tracker", layout="wide")
+st.title("Showroom Event Tracker（サンプル版）")
 
-with open('event_data.json', 'r', encoding='utf-8') as f:
-    data = json.load(f)
+# --- ユーザー選択 ---
+participants = ["ライバーA", "ライバーB", "ライバーC"]
+selected = st.multiselect("表示するライバーを選択", participants, default=participants)
 
-# -----------------------------
-# 2. データ整形
-# -----------------------------
-rows = []
-for record in data:
-    timestamp = datetime.strptime(record['timestamp'], '%Y-%m-%d %H:%M')
-    for p in record['participants']:
-        rows.append({
-            'timestamp': timestamp,
-            'id': p['id'],
-            'name': p['name'],
-            'rank': p['rank'],
-            'points': p['points']
-        })
+# --- データ生成 ---
+# サンプルとして過去2時間分を5分間隔で作成
+times = [datetime.now() - timedelta(minutes=5*i) for i in reversed(range(24))]
+data_list = []
 
-df = pd.DataFrame(rows)
+for t in times:
+    for user in participants:
+        points = np.random.randint(500, 2000)
+        data_list.append({"time": t, "user": user, "points": points})
 
-# -----------------------------
-# 3. CSV出力
-# -----------------------------
-df.to_csv('event_data_output.csv', index=False, encoding='utf-8-sig')
+df = pd.DataFrame(data_list)
 
-# -----------------------------
-# 4. 順位推移グラフ
-# -----------------------------
-fig_rank = px.line(df, x='timestamp', y='rank', color='name', markers=True,
-                   title='順位推移グラフ', labels={'rank': '順位', 'timestamp': '時刻'})
-fig_rank.update_yaxes(autorange="reversed")  # 順位1位を上に
-fig_rank.show()
+# 選択ライバーだけに絞る
+df = df[df["user"].isin(selected)]
 
-# -----------------------------
-# 5. ポイント推移グラフ
-# -----------------------------
-fig_points = px.line(df, x='timestamp', y='points', color='name', markers=True,
-                     title='ポイント推移グラフ', labels={'points': 'ポイント', 'timestamp': '時刻'})
-fig_points.show()
+# --- 順位計算 ---
+df["rank"] = df.groupby("time")["points"].rank(ascending=False, method="min")
+
+# --- グラフ表示 ---
+st.subheader("順位推移")
+fig_rank = px.line(df, x="time", y="rank", color="user", markers=True, title="順位推移（低いほど上位）")
+fig_rank.update_yaxes(autorange="reversed")  # 1位が上に来るよう反転
+st.plotly_chart(fig_rank, use_container_width=True)
+
+st.subheader("ポイント推移")
+fig_point = px.line(df, x="time", y="points", color="user", markers=True, title="ポイント推移")
+st.plotly_chart(fig_point, use_container_width=True)
+
+# --- ランキング表 ---
+st.subheader("最新ランキング")
+latest = df[df["time"] == df["time"].max()].sort_values("rank")
+st.table(latest[["user", "points", "rank"]])
