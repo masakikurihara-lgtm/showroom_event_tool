@@ -15,21 +15,32 @@ for page in range(1, pages_to_fetch + 1):
     resp = requests.get(url)
     if resp.status_code == 200:
         data = resp.json()
-        events = data.get("events", [])
+        # 修正: event_listキーを参照
+        events = data.get("event_list", [])
         events_list.extend(events)
+        st.write(f"ページ {page} 取得件数: {len(events)}")
     else:
         st.error(f"ページ {page} の取得でエラー")
 
 if not events_list:
     st.warning("取得できるイベントがありませんでした。")
 else:
+    # 必要な列を抽出
     df_events = pd.DataFrame(events_list)
-    # 表示する列を絞る
-    df_events = df_events[['id','name','start_at','end_at','status']]
+    df_events = df_events[['event_id','event_name','start_at','ended_at','type_name']]
+    df_events.rename(columns={
+        'event_id':'ID',
+        'event_name':'イベント名',
+        'start_at':'開始日時',
+        'ended_at':'終了日時',
+        'type_name':'種別'
+    }, inplace=True)
+    
+    # 表示
     st.dataframe(df_events)
 
     # 選択ボックスでイベントを選択
-    selected_event = st.selectbox("確認したいイベントを選択", df_events['name'])
-    event_id = df_events[df_events['name']==selected_event]['id'].values[0]
+    selected_event = st.selectbox("確認したいイベントを選択", df_events['イベント名'])
+    event_id = df_events[df_events['イベント名']==selected_event]['ID'].values[0]
 
     st.write(f"選択したイベントID: {event_id}")
