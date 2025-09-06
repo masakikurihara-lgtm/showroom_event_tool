@@ -23,10 +23,8 @@ def fetch_events_pages(page_count: int, include_ended: int = 1):
             r.raise_for_status()
             j = r.json()
 
-            # dict の場合（通常ケース）
             if isinstance(j, dict):
                 page_events = j.get("event_list", [])
-            # list の場合（API仕様が変わって配列直返しになるケース）
             elif isinstance(j, list):
                 page_events = j
             else:
@@ -34,42 +32,27 @@ def fetch_events_pages(page_count: int, include_ended: int = 1):
 
             events.extend(page_events)
             st.write(f"ページ {page} 取得件数: {len(page_events)}")
-
         except Exception as e:
             st.error(f"ページ {page} 取得中にエラー: {e}")
-            # 続行（失敗ページはスキップ）
 
     return events
 
 def _detect_ranking_list_in_json(j):
-    """
-    JSON の中から「ランキング配列らしきもの」を探す（最初に見つかった list[dict] を返す）。
-    要素が dict で、その中に 'rank' or 'point' などのキーを持っていれば有力とみなす。
-    """
     if isinstance(j, dict):
         for k, v in j.items():
             if isinstance(v, list) and v and isinstance(v[0], dict):
-                # 要素に 'rank' / 'point' / 'room_id' / 'room_name' などを含むか確認
                 element_keys = set(v[0].keys())
                 if element_keys & {"rank", "point", "points", "room_id", "room_name", "user_name", "name"}:
                     return v, k
-                # それらのキーが無くても list[dict] を返して良いこともある（慎重に）
-                # ただし空っぽのリストはスキップ
-        # 二重ネストなどもチェック（辞書の中の辞書）
     return None, None
 
 def fetch_ranking_candidates(event_id: int, event_url_key: str = None, max_pages=5):
-    """
-    複数の候補エンドポイントを順に試し、ページを取得して結合した DataFrame を返す。
-    返り値: (df or None, meta) meta は試行した endpoint リストや last_status などの辞書
-    """
     base_candidates = [
         "https://www.showroom-live.com/api/event/ranking?event_id={event_id}&page={page}",
         "https://www.showroom-live.com/api/event/rank_list?event_id={event_id}&page={page}",
         "https://www.showroom-live.com/api/event/room_ranking?event_id={event_id}&page={page}",
     ]
     if event_url_key:
-        # event_url_key を使ったエンドポイント候補
         base_candidates.extend([
             f"https://www.showroom-live.com/api/event/{event_url_key}/ranking?page={{page}}",
             f"https://www.showroom-live.com/api/event/{event_url_key}/room_ranking?page={{page}}",
@@ -79,114 +62,96 @@ def fetch_ranking_candidates(event_id: int, event_url_key: str = None, max_pages
     tried = []
     last_resp_sample = None
 
-for base in base_candidates:
-    all_items = []
-    success_any = False
+    for base in base_candidates:
+        all_items = []
+        success_any = False
 
-    for page in range(1, max_pages + 1):
-        # event_url_key を使ったURLと、event_idを使ったURLを正しく置換
-        if "{event_url_key}" in base:
-            url = base.format(event_url_key=event_url_key, page=page)
-        else:
-            url = base.format(event_id=event_id, page=page)
+        for page in range(1, max_pages + 1):
+            if "{event_url_key}" in base:
+                url = base.format(event_url_key=event_url_key, page=page)
+            else:
+                url = base.format(event_id=event_id, page=page)
 
-        tried.append(url)
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=10)
-            # ステータスが 200 以外（404 等）はページ終了の合図として break する場合がある
-            if r.status_code != 200:
-                last_resp_sample = (url, r.status_code, r.text[:400])
-                break
-            j = r.json()
-            page_items, found_key = _detect_ranking_list_in_json(j)
-            # もし直接配列が返ってくる形式（トップレベルが list）ならそれも扱う
-            if isinstance(j, list) and j and isinstance(j[0], dict):
-                page_items = j
-                found_key = None
-
-            if not page_items:  # ページ内にランキングがなければループ終了
-                if page == 1:
+            tried.append(url)
+            try:
+                r = requests.get(url, headers=HEADERS, timeout=10)
+                if r.status_code != 200:
                     last_resp_sample = (url, r.status_code, r.text[:400])
-                    all_items = []
+                    break
+
+                j = r.json()
+                page_items, found_key = _detect_ranking_list_in_json(j)
+                if isinstance(j, list) and j and isinstance(j[0], dict):
+                    page_items = j
+                    found_key = None
+
+                if not page_items:
+                    if page == 1:
+                        last_resp_sample = (url, r.status_code, r.text[:400])
+                        all_items = []
+                    break
+
+                all_items.extend(page_items)
+                success_any = True
+
+            except Exception as e:
+                last_resp_sample = (url, "exception", str(e)[:400])
                 break
 
-            all_items.extend(page_items)
-            success_any = True
+            time.sleep(0.08)
 
-        except Exception as e:
-            last_resp_sample = (url, "exception", str(e)[:400])
-            break
+        if success_any and all_items:
+            df = pd.DataFrame(all_items)
+            meta = {
+                "used_base": base,
+                "tried_urls": tried,
+                "last_resp_sample": last_resp_sample
+            }
+            return df, meta
 
-        time.sleep(0.08)
-
-    if success_any and all_items:
-        df = pd.DataFrame(all_items)
-        meta = {
-            "used_base": base,
-            "tried_urls": tried,
-            "last_resp_sample": last_resp_sample
-        }
-        return df, meta
-
-    # どれもダメだった
     meta = {"used_base": None, "tried_urls": tried, "last_resp_sample": last_resp_sample}
     return None, meta
 
 def normalize_ranking_df(df: pd.DataFrame):
-    """
-    取得したランキング DataFrame の列名がまちまちなので、
-    '順位','ユーザー名','獲得ポイント' にマッピングして返す（可能な限り）。
-    """
     cols = df.columns.tolist()
     colmap = {}
 
-    # 順位カラム
     for candidate in ["rank", "順位", "position", "no", "ranking"]:
         if candidate in cols:
             colmap[candidate] = "順位"
             break
 
-    # ユーザー名カラム（API により 'room_name' や 'user_name' など）
     for candidate in ["user_name", "room_name", "name", "display_name", "user"]:
         if candidate in cols:
             colmap[candidate] = "ユーザー名"
             break
 
-    # ポイントカラム
     for candidate in ["point", "points", "score", "value"]:
         if candidate in cols:
             colmap[candidate] = "獲得ポイント"
             break
 
-    # room_id など（あれば保持）
     if "room_id" in cols and "room_id" not in colmap:
         colmap["room_id"] = "room_id"
 
-    # apply renaming
     if colmap:
         df = df.rename(columns=colmap)
 
-    # 保持しておく主要列が無ければ追加して安全化
     if "順位" not in df.columns:
-        # try to infer from index or create sequential ranks
         df["順位"] = df.index + 1
     if "獲得ポイント" not in df.columns:
-        # 0で埋める
         df["獲得ポイント"] = 0
     if "ユーザー名" not in df.columns:
-        # 可能なら room_name 代替、無ければ room_id
         if "room_id" in df.columns:
             df["ユーザー名"] = df["room_id"].astype(str)
         else:
             df["ユーザー名"] = ""
 
-    # 順位を numeric にしてソート
     try:
         df["順位"] = pd.to_numeric(df["順位"], errors="coerce").fillna(method="ffill").astype(int)
     except:
         pass
 
-    # 降順（順位1が上）にソートし、重複排除
     df = df.sort_values("順位").reset_index(drop=True)
     return df
 
@@ -211,7 +176,7 @@ if "ranking_meta" not in st.session_state:
 
 if st.button("イベント取得"):
     st.info("イベント取得中...")
-    events = fetch_events_pages(page_count, include_ended=1 if include_ended_choice=="開催中" or include_ended_choice=="開催中のみ" else 0)
+    events = fetch_events_pages(page_count, include_ended)
     if not events:
         st.warning("取得できるイベントがありませんでした。")
         st.session_state.events = []
@@ -219,40 +184,29 @@ if st.button("イベント取得"):
     else:
         st.success(f"合計 {len(events)} 件のイベントを取得しました！")
         st.session_state.events = events
-        df_events = pd.DataFrame(events)
-        st.session_state.events_df = df_events
+        st.session_state.events_df = pd.DataFrame(events)
 
 # -----------------------
 # イベント一覧表示と選択
 # -----------------------
 if st.session_state.events_df is not None:
     df_events = st.session_state.events_df
-    # 表示カラムを安全に選ぶ（存在しないとエラーになるため try）
-    display_cols = []
-    for c in ["event_id", "event_name", "started_at", "ended_at", "type_name", "event_url_key"]:
-        if c in df_events.columns:
-            display_cols.append(c)
+    display_cols = [c for c in ["event_id", "event_name", "started_at", "ended_at", "type_name", "event_url_key"] if c in df_events.columns]
     df_display = df_events[display_cols].copy()
-    # 日付変換（あれば）
     if "started_at" in df_display.columns:
         df_display["開始日時"] = pd.to_datetime(df_display["started_at"], unit="s")
     if "ended_at" in df_display.columns:
         df_display["終了日時"] = pd.to_datetime(df_display["ended_at"], unit="s")
 
     st.markdown("**取得したイベント一覧（クリックで選択）**")
-    # 使いやすい選択肢を作る
     df_display["choice_label"] = df_display.apply(
         lambda r: f'{r.get("event_name","(no name)")}  (id:{r.get("event_id")})', axis=1
     )
     choice = st.selectbox("詳細を表示するイベントを選択してください", options=df_display.index, format_func=lambda i: df_display.loc[i, "choice_label"])
-
     selected_event = df_display.loc[choice]
     st.write(f"選択されたイベントID: {selected_event.get('event_id')}")
     st.write(f"event_url_key：{selected_event.get('event_url_key', '')}")
 
-    # -----------------------
-    # ランキング取得ボタン
-    # -----------------------
     if st.button("ランキング取得"):
         st.info("ランキング取得中...")
         event_id = selected_event["event_id"]
@@ -260,7 +214,6 @@ if st.session_state.events_df is not None:
         ranking_df, meta = fetch_ranking_candidates(event_id=event_id, event_url_key=event_url_key, max_pages=10)
         if ranking_df is None or ranking_df.empty:
             st.error("ランキング取得に失敗しました。")
-            # デバッグ情報を表示
             st.write("試行した URL の一部（最新）:", meta.get("tried_urls", [])[-6:])
             if meta.get("last_resp_sample"):
                 st.write("最後に受け取ったレスポンスサンプル:", meta.get("last_resp_sample"))
