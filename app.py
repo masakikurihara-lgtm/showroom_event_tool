@@ -92,8 +92,6 @@ for page in range(1, max_pages + 1):
     tried.append(url)
     try:
         r = requests.get(url, headers=HEADERS, timeout=10)
-        ...
-
                 # ステータスが 200 以外（404 等）はページ終了の合図として break する場合がある
                 if r.status_code != 200:
                     last_resp_sample = (url, r.status_code, r.text[:400])
