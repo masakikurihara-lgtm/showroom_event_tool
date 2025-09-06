@@ -79,58 +79,54 @@ def fetch_ranking_candidates(event_id: int, event_url_key: str = None, max_pages
     tried = []
     last_resp_sample = None
 
-    for base in base_candidates:
-        all_items = []
-        success_any = False
-for page in range(1, max_pages + 1):
-    # event_url_key を使ったURLと、event_idを使ったURLを正しく置換
-    if "{event_url_key}" in base:
-        url = base.format(event_url_key=event_url_key, page=page)
-    else:
-        url = base.format(event_id=event_id, page=page)
+for base in base_candidates:
+    all_items = []
+    success_any = False
 
-    tried.append(url)
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-                # ステータスが 200 以外（404 等）はページ終了の合図として break する場合がある
-                if r.status_code != 200:
+    for page in range(1, max_pages + 1):
+        # event_url_key を使ったURLと、event_idを使ったURLを正しく置換
+        if "{event_url_key}" in base:
+            url = base.format(event_url_key=event_url_key, page=page)
+        else:
+            url = base.format(event_id=event_id, page=page)
+
+        tried.append(url)
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=10)
+            # ステータスが 200 以外（404 等）はページ終了の合図として break する場合がある
+            if r.status_code != 200:
+                last_resp_sample = (url, r.status_code, r.text[:400])
+                break
+            j = r.json()
+            page_items, found_key = _detect_ranking_list_in_json(j)
+            # もし直接配列が返ってくる形式（トップレベルが list）ならそれも扱う
+            if isinstance(j, list) and j and isinstance(j[0], dict):
+                page_items = j
+                found_key = None
+
+            if not page_items:  # ページ内にランキングがなければループ終了
+                if page == 1:
                     last_resp_sample = (url, r.status_code, r.text[:400])
-                    break
-                j = r.json()
-                page_items, found_key = _detect_ranking_list_in_json(j)
-                # もし直接配列が返ってくる形式（トップレベルが list）ならそれも扱う
-                if isinstance(j, list) and j and isinstance(j[0], dict):
-                    page_items = j
-                    found_key = None
-
-                if not page_items:  # ページ内にランキングがなければループ終了
-                    # ただし空リスト（ランキングが終了）ならループ終了
-                    # もし page==1 かつ空ならそもそもこのエンドポイントは向いてない可能性
-                    if page == 1:
-                        # この base は向いてない可能性。 break out and try next base.
-                        last_resp_sample = (url, r.status_code, r.text[:400])
-                        all_items = []  # 念のためクリア
-                    break
-                # 追加
-                all_items.extend(page_items)
-                success_any = True
-                # 次ページを試す（ページの空になるタイミングで break する）
-            except Exception as e:
-                last_resp_sample = (url, "exception", str(e)[:400])
+                    all_items = []
                 break
 
-            # 連続アクセスを控える
-            time.sleep(0.08)
+            all_items.extend(page_items)
+            success_any = True
 
-        if success_any and all_items:
-            # DataFrame にして返す
-            df = pd.DataFrame(all_items)
-            meta = {
-                "used_base": base,
-                "tried_urls": tried,
-                "last_resp_sample": last_resp_sample
-            }
-            return df, meta
+        except Exception as e:
+            last_resp_sample = (url, "exception", str(e)[:400])
+            break
+
+        time.sleep(0.08)
+
+    if success_any and all_items:
+        df = pd.DataFrame(all_items)
+        meta = {
+            "used_base": base,
+            "tried_urls": tried,
+            "last_resp_sample": last_resp_sample
+        }
+        return df, meta
 
     # どれもダメだった
     meta = {"used_base": None, "tried_urls": tried, "last_resp_sample": last_resp_sample}
