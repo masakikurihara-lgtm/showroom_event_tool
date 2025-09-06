@@ -8,7 +8,8 @@ st.title("SHOWROOM イベント確認ツール")
 # --- イベント一覧取得 ---
 try:
     events = requests.get("https://www.showroom-live.com/api/event/ongoing").json()
-    event_options = {e["event_name"]: (e["event_id"], e["event_url_key"]) for e in events}
+    # レスポンスがリスト形式
+    event_options = {e.get("event_name"): (e.get("event_id"), e.get("event_url_key")) for e in events}
 except Exception as e:
     st.error(f"イベント一覧の取得に失敗しました: {e}")
     events = []
@@ -29,7 +30,8 @@ if events:
         try:
             ranking_data = requests.get(ranking_url).json()
 
-            if "ranking" in ranking_data:
+            # レスポンスの中に "ranking" キーがあるか確認
+            if isinstance(ranking_data, dict) and "ranking" in ranking_data:
                 df = pd.DataFrame([
                     {
                         "順位": r.get("rank"),
@@ -43,6 +45,6 @@ if events:
                 st.dataframe(df)
             else:
                 st.error("ランキングデータが見つかりません")
-                st.json(ranking_data)  # デバッグ用にAPIレスポンスを表示
+                st.json(ranking_data)  # デバッグ用にAPIレスポンスを確認
         except Exception as e:
             st.error(f"ランキング取得に失敗しました: {e}")
