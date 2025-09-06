@@ -22,12 +22,23 @@ def fetch_events_pages(page_count: int, include_ended: int = 1):
             r = requests.get(url, headers=HEADERS, timeout=10)
             r.raise_for_status()
             j = r.json()
-            page_events = j.get("event_list", [])
+
+            # dict の場合（通常ケース）
+            if isinstance(j, dict):
+                page_events = j.get("event_list", [])
+            # list の場合（API仕様が変わって配列直返しになるケース）
+            elif isinstance(j, list):
+                page_events = j
+            else:
+                page_events = []
+
             events.extend(page_events)
             st.write(f"ページ {page} 取得件数: {len(page_events)}")
+
         except Exception as e:
             st.error(f"ページ {page} 取得中にエラー: {e}")
             # 続行（失敗ページはスキップ）
+
     return events
 
 def _detect_ranking_list_in_json(j):
