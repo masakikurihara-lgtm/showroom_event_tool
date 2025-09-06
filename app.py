@@ -3,57 +3,60 @@ import pandas as pd
 import plotly.express as px
 import requests
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 
-st.set_page_config(page_title="Showroom Event Tracker", layout="wide")
-st.title("Showroom Event Tracker（リアルタイム版）")
+st.set_page_config(page_title="SHOWROOM イベント確認ツール", layout="wide")
+st.title("SHOWROOM イベント確認ツール")
+
+# 自動更新（5秒ごと）
+st_autorefresh(interval=5 * 1000, key="refresh")
 
 # --- イベント一覧取得 ---
-EVENT_LIST_URL = "https://www.showroom-live.com/api/event/ongoing"
-
 try:
-    res = requests.get(EVENT_LIST_URL)
+    res = requests.get("https://www.showroom-live.com/api/event/search?page=1")
     res.raise_for_status()
-    event_list = res.json()
-
-    # イベントを {タイトル: ID} で辞書化
-    events = {e["event_name"]: e["event_id"] for e in event_list}
-
-    # --- ユーザーに選択させる ---
-    event_name = st.selectbox("イベントを選択してください", list(events.keys()))
-    event_id = events[event_name]
-
-    st.write(f"選択したイベントID：{event_id}")
-
-    # --- ランキング取得 ---
-    RANKING_URL = f"https://www.showroom-live.com/api/event/ranking?event_id={event_id}"
-    r = requests.get(RANKING_URL)
-    r.raise_for_status()
-    ranking_json = r.json()
-
-    ranking_data = []
-    now = datetime.now()
-    for r in ranking_json.get("ranking", []):
-        ranking_data.append({
-            "time": now,
-            "user": r.get("name", f"ID:{r.get('user_id')}"),
-            "points": r.get("point", 0),
-            "rank": r.get("rank", None)
-        })
-
-    df = pd.DataFrame(ranking_data)
-
-    if not df.empty:
-        # --- グラフ ---
-        st.subheader("ポイント棒グラフ")
-        fig_point = px.bar(df, x="user", y="points", color="user", text="points")
-        st.plotly_chart(fig_point, use_container_width=True)
-
-        # --- テーブル ---
-        st.subheader("最新ランキング")
-        st.table(df.sort_values("rank")[["rank", "user", "points"]])
-
-    else:
-        st.warning("ランキングデータが取得できませんでした。")
-
+    ev_data = res.json().get("event_list", [])
+    events = {e["event_name"]: e["event_id"] for e in ev_data if "event_id" in e}
 except Exception as e:
-    st.error(f"イベント一覧またはランキング取得に失敗しました: {e}")
+    st.error(f"イベント一覧の取得に失敗しました: {e}")
+    events = {}
+
+if not events:
+    st.warning("取得できるイベントがありません。もう一度お試しください。")
+    st.stop()
+
+# --- イベント選択 ---
+selected_name = st.selectbox("表示対象のイベントを選択", list(events.keys()))
+selected_id = events[selected_name]
+st.write(f"選択されたイベントID: {selected_id}")
+
+# --- ランキング取得 ---
+try:
+    ranking_url = f"https://www.showroom-live.com/api/event/ranking?event_id={selected_id}"
+    r = requests.get(ranking_url)
+    r.raise_for_status()
+    rank_json = r.json()
+    ranking = rank_json.get("ranking", [])
+except Exception as e:
+    st.error(f"ランキング取得に失敗しました: {e}")
+    st.stop()
+
+# DataFrameに整形
+now = datetime.now()
+df = pd.DataFrame([{
+    "time": now,
+    "user": r.get("name", f"ID:{r.get('user_id')}"),
+    "points": r.get("point", 0),
+    "rank": r.get("rank", None)
+} for r in ranking])
+
+# --- 表示 ---
+if df.empty:
+    st.warning("ランキングデータが取得できませんでした。")
+else:
+    st.subheader("最新ランキング（棒グラフ）")
+    fig = px.bar(df, x="user", y="points", color="user", text="points")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("順位表")
+    st.table(df.sort_values("rank")[["rank", "user", "points"]])
