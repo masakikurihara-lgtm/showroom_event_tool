@@ -1,57 +1,54 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import numpy as np
-from datetime import datetime, timedelta
-from streamlit_autorefresh import st_autorefresh
+import requests
+from datetime import datetime
 
-# --- ページ設定 ---
 st.set_page_config(page_title="Showroom Event Tracker", layout="wide")
-st.title("Showroom Event Tracker（リアルタイムサンプル）")
+st.title("Showroom Event Tracker（リアルタイム版）")
 
-# --- 自動更新設定（5秒ごと） ---
-st_autorefresh(interval=5*1000, key="refresh")
+# --- イベントID入力 ---
+event_id = st.text_input("イベントIDを入力してください", "40198")
 
-# --- ユーザー選択 ---
-participants = ["ライバーA", "ライバーB", "ライバーC"]
-selected = st.multiselect("表示するライバーを選択", participants, default=participants)
+if event_id:
+    API_URL = f"https://www.showroom-live.com/api/event/ranking?event_id={event_id}"
 
-# --- サンプルJSONデータ作成 ---
-# 初期データ作成（過去2時間分、5分間隔）
-times = [datetime.now() - timedelta(minutes=5*i) for i in reversed(range(24))]
-event_data = []
-for t in times:
-    for user in participants:
-        points = np.random.randint(500, 2000)
-        event_data.append({"time": t, "user": user, "points": points})
+    try:
+        response = requests.get(API_URL)
+        response.raise_for_status()
+        json_data = response.json()
 
-# --- データ更新（リアルタイム感） ---
-# 各ライバーの最新ポイントをランダムに増減
-for entry in event_data:
-    if entry["user"] in selected:
-        entry["points"] += np.random.randint(-50, 100)
+        # --- DataFrame へ変換 ---
+        ranking_data = []
+        now = datetime.now()
 
-# DataFrame化
-df = pd.DataFrame(event_data)
-df["time"] = pd.to_datetime(df["time"])
-df = df[df["user"].isin(selected)]
+        for r in json_data.get("ranking", []):
+            ranking_data.append({
+                "time": now,
+                "user": r.get("name", f"ID:{r.get('user_id')}"),
+                "points": r.get("point", 0),
+                "rank": r.get("rank", None)
+            })
 
-# --- 順位計算 ---
-df["rank"] = df.groupby("time")["points"].rank(ascending=False, method="min")
+        df = pd.DataFrame(ranking_data)
 
-# --- グラフ表示 ---
-st.subheader("順位推移")
-fig_rank = px.line(df, x="time", y="rank", color="user", markers=True,
-                   title="順位推移（低いほど上位）")
-fig_rank.update_yaxes(autorange="reversed")
-st.plotly_chart(fig_rank, use_container_width=True)
+        if df.empty:
+            st.warning("ランキングデータが取得できませんでした。")
+        else:
+            # --- ライバー選択 ---
+            participants = df["user"].tolist()
+            selected = st.multiselect("表示するライバーを選択", participants, default=participants)
+            df = df[df["user"].isin(selected)]
 
-st.subheader("ポイント推移")
-fig_point = px.line(df, x="time", y="points", color="user", markers=True,
-                    title="ポイント推移")
-st.plotly_chart(fig_point, use_container_width=True)
+            # --- グラフ表示 ---
+            st.subheader("ポイント（取得時点）")
+            fig_point = px.bar(df, x="user", y="points", color="user", text="points",
+                               title="ポイントランキング", height=500)
+            st.plotly_chart(fig_point, use_container_width=True)
 
-# --- 最新ランキング表 ---
-st.subheader("最新ランキング")
-latest = df[df["time"] == df["time"].max()].sort_values("rank")
-st.table(latest[["user", "points", "rank"]])
+            # --- ランキング表 ---
+            st.subheader("最新ランキング")
+            st.table(df.sort_values("rank")[["rank", "user", "points"]])
+
+    except Exception as e:
+        st.error(f"データ取得に失敗しました: {e}")
