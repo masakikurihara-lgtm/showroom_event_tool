@@ -82,11 +82,18 @@ def fetch_ranking_candidates(event_id: int, event_url_key: str = None, max_pages
     for base in base_candidates:
         all_items = []
         success_any = False
-        for page in range(1, max_pages + 1):
-            url = base.format(event_id=event_id, page=page)
-            tried.append(url)
-            try:
-                r = requests.get(url, headers=HEADERS, timeout=10)
+for page in range(1, max_pages + 1):
+    # event_url_key を使ったURLと、event_idを使ったURLを正しく置換
+    if "{event_url_key}" in base:
+        url = base.format(event_url_key=event_url_key, page=page)
+    else:
+        url = base.format(event_id=event_id, page=page)
+
+    tried.append(url)
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        ...
+
                 # ステータスが 200 以外（404 等）はページ終了の合図として break する場合がある
                 if r.status_code != 200:
                     last_resp_sample = (url, r.status_code, r.text[:400])
